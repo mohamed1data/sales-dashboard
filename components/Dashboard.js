@@ -31,22 +31,22 @@ export default function Dashboard({ session }) {
 
   useEffect(() => {
     (async () => {
-      // managers: decided INSIDE the database by is_dashboard_user() (the email must be listed in dashboard_users)
-      const m = await supabase.rpc('is_dashboard_user');
-      if (!m.error && m.data === true) {
-        const c = await supabase.rpc('my_context');
-        setCtx(!c.error && c.data && c.data[0] ? c.data[0] : { role: 'manager' });
-        setRole('manager');
-        const o = await supabase.from('reps').select('id').eq('auth_user_id', session.user.id).limit(1);
-        setOverlap(!o.error && !!(o.data && o.data.length));
-        return;
+      // One database RPC replaces the previous 2–3 startup reads. The function
+      // decides manager vs rep inside PostgreSQL, with the active tenant checks.
+      const { data, error } = await supabase.rpc('my_app_context');
+      if (error || !data) return setRole('none');
+      if (data.kind === 'manager') {
+        setCtx({ role: data.role || 'manager', tenant_id: data.tenant_id, tenant_name: data.tenant_name, rep_limit: data.rep_limit, invite_code: data.invite_code, is_owner: data.is_owner });
+        setOverlap(!!data.overlap);
+        return setRole('manager');
       }
-      // reps: linked to this login
-      const r = await supabase.from('reps').select('id,name,active').eq('auth_user_id', session.user.id).limit(1);
-      if (!r.error && r.data && r.data.length && r.data[0].active) { setRep(r.data[0]); return setRole('rep'); }
+      if (data.kind === 'rep' && data.rep && data.rep.active) {
+        setRep(data.rep);
+        return setRole('rep');
+      }
       setRole('none');
     })();
-  }, [session]);
+  }, [session.user.id]);
 
   if (role === undefined) return <div className="center muted">جاري التحميل…</div>;
   if (role === 'none') {
